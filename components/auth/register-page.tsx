@@ -4,6 +4,7 @@ import React from "react"
 
 import { useState } from 'react';
 import { ArrowLeft, Mail, Lock, User, Code } from 'lucide-react';
+import { useToast } from '@/hooks/use-toast';
 
 interface RegisterPageProps {
   onSuccess: (role: 'patient' | 'doctor') => void;
@@ -12,12 +13,15 @@ interface RegisterPageProps {
 
 export default function RegisterPage({ onSuccess, onBackToLogin }: RegisterPageProps) {
   const [step, setStep] = useState<'form' | 'email-verify'>('form');
+  const [isLoading, setIsLoading] = useState(false);
   const [formData, setFormData] = useState({
-    name: '',
+    username: '',
     email: '',
     password: '',
-    invitationCode: '',
+    password_confirm: '',
+    role: 'patient' as 'patient' | 'provider',
   });
+  const { toast } = useToast();
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setFormData({
@@ -26,9 +30,56 @@ export default function RegisterPage({ onSuccess, onBackToLogin }: RegisterPageP
     });
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setStep('email-verify');
+    setIsLoading(true);
+
+    try {
+      const response = await fetch('http://localhost:8000/api/auth/register/', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(formData),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        // Handle validation errors
+        const errorMessage = typeof data.error === 'string' 
+          ? data.error 
+          : Object.values(data).flat().join(', ');
+        
+        toast({
+          title: 'Registration Failed',
+          description: errorMessage,
+          variant: 'destructive',
+        });
+        setIsLoading(false);
+        return;
+      }
+
+      // Registration successful
+      toast({
+        title: 'Registration Successful!',
+        description: 'Your account has been created. Please log in.',
+      });
+
+      // Redirect to login after short delay
+      setTimeout(() => {
+        onBackToLogin();
+      }, 2000);
+
+    } catch (error) {
+      toast({
+        title: 'Error',
+        description: 'Network error. Please try again.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleVerifyEmail = (e: React.FormEvent) => {
@@ -70,22 +121,23 @@ export default function RegisterPage({ onSuccess, onBackToLogin }: RegisterPageP
             {/* Form Step */}
             {step === 'form' && (
               <form onSubmit={handleSubmit} className="space-y-5">
-                {/* Name Input */}
+                {/* Username Input */}
                 <div>
-                  <label htmlFor="name" className="block text-sm font-medium text-foreground mb-2">
-                    Full Name
+                  <label htmlFor="username" className="block text-sm font-medium text-foreground mb-2">
+                    Username
                   </label>
                   <div className="relative">
                     <User className="absolute left-3 top-3 h-5 w-5 text-muted-foreground" />
                     <input
-                      id="name"
+                      id="username"
                       type="text"
-                      name="name"
-                      value={formData.name}
+                      name="username"
+                      value={formData.username}
                       onChange={handleInputChange}
-                      placeholder="John Doe"
+                      placeholder="johndoe"
                       className="w-full rounded-lg border border-border bg-background px-10 py-2.5 text-foreground placeholder-muted-foreground outline-none focus:ring-2 focus:ring-primary/50"
                       required
+                      disabled={isLoading}
                     />
                   </div>
                 </div>
@@ -106,6 +158,7 @@ export default function RegisterPage({ onSuccess, onBackToLogin }: RegisterPageP
                       placeholder="you@example.com"
                       className="w-full rounded-lg border border-border bg-background px-10 py-2.5 text-foreground placeholder-muted-foreground outline-none focus:ring-2 focus:ring-primary/50"
                       required
+                      disabled={isLoading}
                     />
                   </div>
                 </div>
@@ -123,67 +176,92 @@ export default function RegisterPage({ onSuccess, onBackToLogin }: RegisterPageP
                       name="password"
                       value={formData.password}
                       onChange={handleInputChange}
-                      placeholder="••••••••"
+                      placeholder="••••••••••••"
                       className="w-full rounded-lg border border-border bg-background px-10 py-2.5 text-foreground placeholder-muted-foreground outline-none focus:ring-2 focus:ring-primary/50"
                       required
+                      disabled={isLoading}
+                    />
+                  </div>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Must be at least 12 characters with 1 special character
+                  </p>
+                </div>
+
+                {/* Confirm Password Input */}
+                <div>
+                  <label htmlFor="password_confirm" className="block text-sm font-medium text-foreground mb-2">
+                    Confirm Password
+                  </label>
+                  <div className="relative">
+                    <Lock className="absolute left-3 top-3 h-5 w-5 text-muted-foreground" />
+                    <input
+                      id="password_confirm"
+                      type="password"
+                      name="password_confirm"
+                      value={formData.password_confirm}
+                      onChange={handleInputChange}
+                      placeholder="••••••••••••"
+                      className="w-full rounded-lg border border-border bg-background px-10 py-2.5 text-foreground placeholder-muted-foreground outline-none focus:ring-2 focus:ring-primary/50"
+                      required
+                      disabled={isLoading}
                     />
                   </div>
                 </div>
 
-                {/* Invitation Code Input */}
+                {/* Role Selection */}
                 <div>
-                  <label htmlFor="code" className="block text-sm font-medium text-foreground mb-2">
-                    Invitation Code
+                  <label className="block text-sm font-medium text-foreground mb-2">
+                    I am a:
                   </label>
-                  <div className="relative">
-                    <Code className="absolute left-3 top-3 h-5 w-5 text-muted-foreground" />
-                    <input
-                      id="code"
-                      type="text"
-                      name="invitationCode"
-                      value={formData.invitationCode}
-                      onChange={handleInputChange}
-                      placeholder="Enter your invitation code"
-                      className="w-full rounded-lg border border-border bg-background px-10 py-2.5 text-foreground placeholder-muted-foreground outline-none focus:ring-2 focus:ring-primary/50"
-                      required
-                    />
+                  <div className="flex gap-4">
+                    <label className="flex-1 relative">
+                      <input
+                        type="radio"
+                        name="role"
+                        value="patient"
+                        checked={formData.role === 'patient'}
+                        onChange={(e) => setFormData({ ...formData, role: e.target.value as 'patient' | 'provider' })}
+                        className="peer sr-only"
+                        disabled={isLoading}
+                      />
+                      <div className="cursor-pointer rounded-lg border-2 border-border bg-background px-4 py-3 text-center transition-all peer-checked:border-primary peer-checked:bg-primary/10">
+                        <span className="font-medium">Patient</span>
+                      </div>
+                    </label>
+                    <label className="flex-1 relative">
+                      <input
+                        type="radio"
+                        name="role"
+                        value="provider"
+                        checked={formData.role === 'provider'}
+                        onChange={(e) => setFormData({ ...formData, role: e.target.value as 'patient' | 'provider' })}
+                        className="peer sr-only"
+                        disabled={isLoading}
+                      />
+                      <div className="cursor-pointer rounded-lg border-2 border-border bg-background px-4 py-3 text-center transition-all peer-checked:border-primary peer-checked:bg-primary/10">
+                        <span className="font-medium">Healthcare Provider</span>
+                      </div>
+                    </label>
                   </div>
-                  <p className="mt-2 text-xs text-muted-foreground">
-                    (Use 'doctor' or 'patient' for demo)
-                  </p>
                 </div>
 
                 {/* Submit Button */}
                 <button
                   type="submit"
-                  className="w-full rounded-lg bg-primary px-4 py-3 font-semibold text-primary-foreground hover:bg-primary/90 transition-colors"
+                  disabled={isLoading}
+                  className="w-full rounded-lg bg-primary px-4 py-3 font-semibold text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  Continue
+                  {isLoading ? 'Creating Account...' : 'Create Account'}
                 </button>
               </form>
             )}
 
             {/* Verify Email Step */}
             {step === 'email-verify' && (
-              <form onSubmit={handleVerifyEmail} className="space-y-5">
-                <div>
-                  <label htmlFor="verifyCode" className="block text-sm font-medium text-foreground mb-2">
-                    6-Digit Code
-                  </label>
-                  <input
-                    id="verifyCode"
-                    type="text"
-                    placeholder="000000"
-                    maxLength={6}
-                    className="w-full rounded-lg border border-border bg-background px-4 py-3 text-center text-2xl tracking-widest text-foreground placeholder-muted-foreground outline-none focus:ring-2 focus:ring-primary/50"
-                  />
-                </div>
-                <button
-                  type="submit"
-                  className="w-full rounded-lg bg-primary px-4 py-3 font-semibold text-primary-foreground hover:bg-primary/90 transition-colors"
-                >
-                  Verify Email
-                </button>
+              <div className="text-center space-y-5">
+                <p className="text-sm text-muted-foreground">
+                  Email verification coming soon...
+                </p>
                 <button
                   type="button"
                   onClick={() => setStep('form')}
@@ -191,7 +269,7 @@ export default function RegisterPage({ onSuccess, onBackToLogin }: RegisterPageP
                 >
                   Back
                 </button>
-              </form>
+              </div>
             )}
 
             {/* Login Link */}

@@ -3,6 +3,7 @@
 import React from "react"
 
 import { useState } from 'react';
+import Link from 'next/link';
 import { Lock, Mail, Eye, EyeOff, X, Shield } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/context/auth-context';
@@ -315,7 +316,7 @@ export default function LoginModal({
         {/* Footer */}
         {step === 'STEP_CREDENTIALS' && (
           <div className="px-8 py-4 bg-muted/30 text-center text-sm text-muted-foreground">
-            Don't have an account? <a href="#" className="text-primary font-medium hover:underline">Sign up</a>
+            Don't have an account? <Link href="/register" className="text-primary font-medium hover:underline" onClick={handleClose}>Sign up</Link>
           </div>
         )}
       </div>
