@@ -5,6 +5,8 @@ import { Shield, Lock, AlertTriangle, Trash2, Calendar, Clock } from 'lucide-rea
 import axios from 'axios';
 import { toast } from 'sonner';
 import { Skeleton } from '@/components/ui/skeleton';
+import MfaSetup from '@/components/auth/mfa-setup';
+import { useAuth } from '@/context/auth-context';
 import {
   Dialog,
   DialogContent,
@@ -51,6 +53,7 @@ const DURATION_OPTIONS = [
 ];
 
 export default function PrivacySettings() {
+  const { tokens } = useAuth();
   const [departments, setDepartments] = useState<Consent[]>([]);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -65,16 +68,48 @@ export default function PrivacySettings() {
     fetchConsents();
   }, []);
 
+  const getAuthHeaders = () => {
+    if (tokens?.access) {
+      return {
+        'Authorization': `Bearer ${tokens.access}`,
+        'Content-Type': 'application/json',
+      };
+    }
+    return {};
+  };
+
   const fetchConsents = async () => {
     try {
       setIsLoading(true);
       const response = await axios.get<Consent[]>(API_BASE_URL, {
-        withCredentials: true,
+        headers: getAuthHeaders(),
       });
-      setDepartments(response.data);
-    } catch (error) {
+      
+      // Ensure we have an array
+      if (Array.isArray(response.data)) {
+        setDepartments(response.data);
+      } else if (response.data && typeof response.data === 'object') {
+        // Backend might return empty object for no data
+        console.log('No consent records found, API returned:', response.data);
+        setDepartments([]);
+      } else {
+        console.error('API returned unexpected data format:', response.data);
+        setDepartments([]);
+      }
+    } catch (error: any) {
       console.error('Error fetching consents:', error);
-      toast.error('Failed to load consent settings');
+      
+      // Ensure departments stays as an array even on error
+      setDepartments([]);
+      
+      if (error.response?.status === 401) {
+        toast.error('Authentication failed. Please log in again.');
+      } else if (error.response?.status === 404) {
+        // No consents found - this is OK
+        console.log('No consent records found (404)');
+      } else {
+        toast.error('Failed to load consent settings');
+      }
     } finally {
       setIsLoading(false);
     }
@@ -133,7 +168,7 @@ export default function PrivacySettings() {
       await axios.patch(
         `${API_BASE_URL}/${id}/`,
         { is_granted: false },
-        { withCredentials: true }
+        { headers: getAuthHeaders() }
       );
 
       toast.success(`Access for ${consent.department} revoked`);
@@ -177,7 +212,7 @@ export default function PrivacySettings() {
           is_granted: true,
           expires_at: expiresAt
         },
-        { withCredentials: true }
+        { headers: getAuthHeaders() }
       );
 
       toast.success(
@@ -273,6 +308,15 @@ export default function PrivacySettings() {
             ))
           )}
         </div>
+      </div>
+
+      {/* Two-Factor Authentication */}
+      <div className="mb-8">
+        <h2 className="text-xl font-semibold text-foreground mb-4 flex items-center gap-2">
+          <Lock className="h-5 w-5 text-accent" />
+          Security Settings
+        </h2>
+        <MfaSetup />
       </div>
 
       {/* Duration Dialog */}

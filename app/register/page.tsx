@@ -7,8 +7,9 @@ export default function RegisterRoute() {
   const router = useRouter();
 
   const handleSuccess = (role: 'patient' | 'doctor') => {
-    // Redirect to the appropriate portal after successful registration
-    router.push('/portal');
+    // After successful registration, user needs to login
+    // Redirect to home page where they can login
+    router.push('/');
   };
 
   const handleBackToLogin = () => {

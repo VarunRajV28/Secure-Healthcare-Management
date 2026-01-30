@@ -1,5 +1,6 @@
 from django.contrib.auth.models import AbstractUser
 from django.db import models
+from django.utils import timezone
 
 
 class User(AbstractUser):
@@ -49,6 +50,10 @@ class User(AbstractUser):
         help_text='Account locked until this timestamp'
     )
     
+    # Authentication configuration
+    USERNAME_FIELD = 'email'
+    REQUIRED_FIELDS = ['username', 'first_name', 'last_name']
+    
     class Meta:
         db_table = 'users'
         verbose_name = 'User'
@@ -56,3 +61,22 @@ class User(AbstractUser):
     
     def __str__(self):
         return f"{self.username} ({self.email})"
+    
+    def is_account_locked(self):
+        """
+        Check if the account is currently locked.
+        
+        Returns:
+            bool: True if account is locked, False otherwise
+        """
+        if self.locked_until and self.locked_until > timezone.now():
+            return True
+        return False
+    
+    def unlock_account(self):
+        """
+        Manually unlock the account by clearing lockout fields.
+        """
+        self.locked_until = None
+        self.failed_login_attempts = 0
+        self.save(update_fields=['locked_until', 'failed_login_attempts'])

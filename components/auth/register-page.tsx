@@ -3,8 +3,10 @@
 import React from "react"
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { ArrowLeft, Mail, Lock, User, Code } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { useAuth } from '@/context/auth-context';
 
 interface RegisterPageProps {
   onSuccess: (role: 'patient' | 'doctor') => void;
@@ -12,6 +14,7 @@ interface RegisterPageProps {
 }
 
 export default function RegisterPage({ onSuccess, onBackToLogin }: RegisterPageProps) {
+  const router = useRouter();
   const [step, setStep] = useState<'form' | 'email-verify'>('form');
   const [isLoading, setIsLoading] = useState(false);
   const [formData, setFormData] = useState({
@@ -20,8 +23,10 @@ export default function RegisterPage({ onSuccess, onBackToLogin }: RegisterPageP
     password: '',
     password_confirm: '',
     role: 'patient' as 'patient' | 'provider',
+    medicalLicenseNumber: '', // Optional field for doctors
   });
   const { toast } = useToast();
+  const { login } = useAuth();
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setFormData({
@@ -63,13 +68,33 @@ export default function RegisterPage({ onSuccess, onBackToLogin }: RegisterPageP
       // Registration successful
       toast({
         title: 'Registration Successful!',
-        description: 'Your account has been created. Please log in.',
+        description: 'Logging you in...',
       });
 
-      // Redirect to login after short delay
-      setTimeout(() => {
-        onBackToLogin();
-      }, 2000);
+      // Auto-login after registration
+      const loginResult = await login(formData.email, formData.password);
+
+      if (loginResult.status === 'SUCCESS') {
+        // Successfully logged in, redirect to home page
+        toast({
+          title: 'Welcome!',
+          description: 'You have been logged in successfully.',
+        });
+        
+        // Redirect to home page which will show the appropriate portal
+        setTimeout(() => {
+          router.push('/');
+        }, 1000);
+      } else if (loginResult.error) {
+        // Login failed, redirect to login page manually
+        toast({
+          title: 'Please login',
+          description: 'Registration successful. Please login with your credentials.',
+        });
+        setTimeout(() => {
+          onBackToLogin();
+        }, 1500);
+      }
 
     } catch (error) {
       toast({
@@ -210,7 +235,7 @@ export default function RegisterPage({ onSuccess, onBackToLogin }: RegisterPageP
 
                 {/* Role Selection */}
                 <div>
-                  <label className="block text-sm font-medium text-foreground mb-2">
+                  <label className="block text-sm font-medium text-foreground mb-3">
                     I am a:
                   </label>
                   <div className="flex gap-4">
@@ -224,7 +249,7 @@ export default function RegisterPage({ onSuccess, onBackToLogin }: RegisterPageP
                         className="peer sr-only"
                         disabled={isLoading}
                       />
-                      <div className="cursor-pointer rounded-lg border-2 border-border bg-background px-4 py-3 text-center transition-all peer-checked:border-primary peer-checked:bg-primary/10">
+                      <div className="cursor-pointer rounded-lg border-2 border-border bg-background px-4 py-3 text-center transition-all peer-checked:border-primary peer-checked:bg-primary/10 hover:border-primary/50">
                         <span className="font-medium">Patient</span>
                       </div>
                     </label>
@@ -238,12 +263,37 @@ export default function RegisterPage({ onSuccess, onBackToLogin }: RegisterPageP
                         className="peer sr-only"
                         disabled={isLoading}
                       />
-                      <div className="cursor-pointer rounded-lg border-2 border-border bg-background px-4 py-3 text-center transition-all peer-checked:border-primary peer-checked:bg-primary/10">
-                        <span className="font-medium">Healthcare Provider</span>
+                      <div className="cursor-pointer rounded-lg border-2 border-border bg-background px-4 py-3 text-center transition-all peer-checked:border-primary peer-checked:bg-primary/10 hover:border-primary/50">
+                        <span className="font-medium">Doctor</span>
                       </div>
                     </label>
                   </div>
                 </div>
+
+                {/* Medical License Number (for Doctors) */}
+                {formData.role === 'provider' && (
+                  <div className="space-y-2 p-4 rounded-lg bg-muted/50 border border-border">
+                    <label htmlFor="medicalLicenseNumber" className="block text-sm font-medium text-foreground">
+                      Medical License Number <span className="text-muted-foreground">(Optional)</span>
+                    </label>
+                    <div className="relative">
+                      <Code className="absolute left-3 top-3 h-5 w-5 text-muted-foreground" />
+                      <input
+                        id="medicalLicenseNumber"
+                        type="text"
+                        name="medicalLicenseNumber"
+                        value={formData.medicalLicenseNumber}
+                        onChange={handleInputChange}
+                        placeholder="e.g., MD-12345-2024"
+                        className="w-full rounded-lg border border-border bg-background px-10 py-2.5 text-foreground placeholder-muted-foreground outline-none focus:ring-2 focus:ring-primary/50"
+                        disabled={isLoading}
+                      />
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      This helps verify your credentials (can be added later)
+                    </p>
+                  </div>
+                )}
 
                 {/* Submit Button */}
                 <button
