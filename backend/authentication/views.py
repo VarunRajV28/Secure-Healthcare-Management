@@ -288,6 +288,12 @@ def login_view(request):
             'error': 'Invalid credentials'
         }, status=status.HTTP_401_UNAUTHORIZED)
     
+    # Security Check: Prevent login for deactivated/deleted users
+    if not user.is_active:
+        return Response({
+            'error': 'This account has been deactivated or scheduled for deletion.'
+        }, status=status.HTTP_403_FORBIDDEN)
+    
     # Check if account is locked
     if user.locked_until and user.locked_until > timezone.now():
         remaining_time = (user.locked_until - timezone.now()).seconds // 60
@@ -336,10 +342,17 @@ def login_view(request):
     
     # No MFA - return tokens immediately
     tokens = get_tokens_for_user(user)
+    
+    # Check policy version (Story 2.4)
+    latest_policy = getattr(settings, 'LATEST_POLICY_VERSION', 1)
+    requires_policy = user.accepted_policy_version < latest_policy
+    
     return Response({
         'access': tokens['access'],
         'refresh': tokens['refresh'],
-        'user': UserSerializer(user).data
+        'user': UserSerializer(user).data,
+        'requires_policy_acceptance': requires_policy,
+        'latest_policy_version': latest_policy
     }, status=status.HTTP_200_OK)
 
 
@@ -672,10 +685,16 @@ def mfa_login_view(request):
         print(f"[MFA LOGIN] Access token: {tokens['access'][:40]}...")
         print("="*70 + "\n")
         
+        # Check policy version (Story 2.4)
+        latest_policy = getattr(settings, 'LATEST_POLICY_VERSION', 1)
+        requires_policy = user.accepted_policy_version < latest_policy
+        
         return Response({
             'access': tokens['access'],
             'refresh': tokens['refresh'],
-            'user': UserSerializer(user).data
+            'user': UserSerializer(user).data,
+            'requires_policy_acceptance': requires_policy,
+            'latest_policy_version': latest_policy
         }, status=status.HTTP_200_OK)
     
     # Handle OTP login (existing logic)
@@ -729,10 +748,16 @@ def mfa_login_view(request):
         print(f"[MFA LOGIN] Access token: {tokens['access'][:40]}...")
         print("="*70 + "\n")
         
+        # Check policy version (Story 2.4)
+        latest_policy = getattr(settings, 'LATEST_POLICY_VERSION', 1)
+        requires_policy = user.accepted_policy_version < latest_policy
+        
         return Response({
             'access': tokens['access'],
             'refresh': tokens['refresh'],
-            'user': UserSerializer(user).data
+            'user': UserSerializer(user).data,
+            'requires_policy_acceptance': requires_policy,
+            'latest_policy_version': latest_policy
         }, status=status.HTTP_200_OK)
     
     print(f"[MFA LOGIN] FAILED - Invalid OTP code")
@@ -1141,3 +1166,197 @@ class UserManagementViewSet(viewsets.ReadOnlyModelViewSet):
         
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
+
+# ============================================
+# Account Deletion (Right to be Forgotten)
+# ============================================
+
+from rest_framework.views import APIView
+
+class RequestAccountDeletionView(APIView):
+    """
+    Request account deletion endpoint (Story 2.3: Right to be Forgotten).
+    POST /api/auth/request-deletion/
+    
+    Implements soft delete:
+    - Sets deletion_requested_at timestamp
+    - Immediately deactivates account (is_active = False)
+    - Data retained for 30 days before permanent deletion
+    
+    Requires authentication.
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request):
+        """
+        Handle account deletion request.
+        
+        Response:
+        {
+            "message": "Account scheduled for deletion in 30 days."
+        }
+        """
+        user = request.user
+        
+        # Mark deletion timestamp
+        user.deletion_requested_at = timezone.now()
+        
+        # Immediate lockout (soft delete)
+        user.is_active = False
+        
+        user.save(update_fields=['deletion_requested_at', 'is_active'])
+        
+        # Audit log
+        print(f"\n{'='*70}")
+        print("ACCOUNT DELETION REQUEST - AUDIT LOG")
+        print(f"{'='*70}")
+        print(f"Timestamp: {timezone.now().strftime('%Y-%m-%d %H:%M:%S UTC')}")
+        print(f"User ID: {user.id}")
+        print(f"Username: {user.username}")
+        print(f"Email: {user.email}")
+        print(f"Role: {user.role}")
+        print(f"Deletion requested at: {user.deletion_requested_at}")
+        print(f"Account deactivated: {not user.is_active}")
+        print(f"{'='*70}\n")
+        
+        return Response(
+            {"message": "Account scheduled for deletion in 30 days."},
+            status=status.HTTP_200_OK
+        )
+
+
+class DownloadDeletionCertificateView(APIView):
+    """
+    Download deletion certificate PDF.
+    GET /api/auth/deletion-certificate/
+    
+    Returns a PDF certificate confirming the account deletion request.
+    Only accessible to users who have requested deletion.
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        """
+        Generate and return deletion certificate PDF.
+        
+        Response:
+            PDF file download
+        """
+        from django.http import FileResponse
+        from .utils import generate_deletion_certificate
+        
+        user = request.user
+        
+        # Auto-mark for deletion if not already done
+        if not user.deletion_requested_at:
+            # Mark deletion timestamp
+            user.deletion_requested_at = timezone.now()
+            
+            # Immediate lockout (soft delete)
+            user.is_active = False
+            
+            user.save(update_fields=['deletion_requested_at', 'is_active'])
+            
+            # Audit log for auto-marking
+            print(f"\n{'='*70}")
+            print("AUTO-MARKED FOR DELETION VIA CERTIFICATE REQUEST")
+            print(f"{'='*70}")
+            print(f"Timestamp: {timezone.now().strftime('%Y-%m-%d %H:%M:%S UTC')}")
+            print(f"User ID: {user.id}")
+            print(f"Username: {user.username}")
+            print(f"Email: {user.email}")
+            print(f"{'='*70}\n")
+        
+        # Generate the PDF certificate
+        pdf_buffer = generate_deletion_certificate(user)
+        
+        # Return as file download
+        filename = f"deletion_certificate_{user.id}.pdf"
+        response = FileResponse(
+            pdf_buffer,
+            as_attachment=True,
+            filename=filename,
+            content_type='application/pdf'
+        )
+        
+        # Audit log
+        print(f"\n{'='*70}")
+        print("DELETION CERTIFICATE DOWNLOAD - AUDIT LOG")
+        print(f"{'='*70}")
+        print(f"Timestamp: {timezone.now().strftime('%Y-%m-%d %H:%M:%S UTC')}")
+        print(f"User ID: {user.id}")
+        print(f"Username: {user.username}")
+        print(f"Email: {user.email}")
+        print(f"Deletion requested at: {user.deletion_requested_at}")
+        print(f"{'='*70}\n")
+        
+        return response
+
+
+# ============================================
+# Policy Updates (Story 2.4)
+# ============================================
+
+class AcceptLatestPolicyView(APIView):
+    """
+    Endpoint for users to accept the latest Terms of Service.
+    POST /api/auth/accept-policy/
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        user = request.user
+        latest_version = getattr(settings, 'LATEST_POLICY_VERSION', 1)
+        
+        user.accepted_policy_version = latest_version
+        user.policy_accepted_at = timezone.now()
+        user.save(update_fields=['accepted_policy_version', 'policy_accepted_at'])
+        
+        # Log this action
+        print(f"\n{'='*70}")
+        print("POLICY ACCEPTANCE - AUDIT LOG")
+        print(f"{'='*70}")
+        print(f"Timestamp: {timezone.now().strftime('%Y-%m-%d %H:%M:%S UTC')}")
+        print(f"User ID: {user.id}")
+        print(f"Username: {user.username}")
+        print(f"Accepted Version: {latest_version}")
+        print(f"{'='*70}\n")
+        
+        return Response({
+            'message': 'Policy accepted successfully',
+            'accepted_version': latest_version
+        }, status=status.HTTP_200_OK)
+
+
+class DownloadPolicyReceiptView(APIView):
+    """
+    Download PDF receipt for policy acceptance.
+    GET /api/auth/download-policy-receipt/
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        from .utils import generate_policy_receipt
+        from django.http import FileResponse
+        
+        user = request.user
+        
+        # Check if user has accepted policy
+        if user.accepted_policy_version == 0:
+            return Response({
+                'error': 'No policy acceptance record found.'
+            }, status=status.HTTP_404_NOT_FOUND)
+            
+        # Generate the PDF
+        pdf_buffer = generate_policy_receipt(user, user.accepted_policy_version)
+        
+        # Return as file download
+        filename = f"policy_receipt_v{user.accepted_policy_version}_{user.id}.pdf"
+        response = FileResponse(
+            pdf_buffer,
+            as_attachment=True,
+            filename=filename,
+            content_type='application/pdf'
+        )
+        
+        return response

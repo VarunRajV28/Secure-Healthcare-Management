@@ -1,8 +1,6 @@
 'use client';
 
-import React from "react"
-
-import { useState } from 'react';
+import React, { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Lock, Mail, Eye, EyeOff, X, Shield } from 'lucide-react';
@@ -35,11 +33,28 @@ export default function LoginModal({
   const [tempToken, setTempToken] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
-  const { login, verifyMfa, user } = useAuth();
+  const { login, verifyMfa, triggerPolicyCheck } = useAuth();
   const { toast } = useToast();
   const router = useRouter();
 
   if (!isOpen) return null;
+
+  const handleLoginSuccess = () => {
+    toast({
+      title: 'Welcome back!',
+      description: 'You have been successfully logged in.',
+    });
+    handleClose();
+
+    // 🚦 TRAFFIC CONTROLLER (REDIRECTS)
+    if (role === 'doctor') {
+      router.push('/doctor');
+    } else if (role === 'patient') {
+      router.push('/portal');
+    } else if (role === 'admin') {
+      window.location.href = 'http://localhost:8000/admin';
+    }
+  };
 
   const handleCredentialsSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -67,22 +82,17 @@ export default function LoginModal({
           description: 'Please enter your 6-digit authentication code.',
         });
       } else if (result.status === 'SUCCESS') {
-        // Login successful
-        toast({
-          title: 'Welcome back!',
-          description: 'You have been successfully logged in.',
-        });
-        handleClose();
-
-        // 🚦 TRAFFIC CONTROLLER (REDIRECTS)
-        // Use the role prop from the modal, not user.role (which may not be updated yet)
-        if (role === 'doctor') {
-          router.push('/doctor');
-        } else if (role === 'patient') {
-          router.push('/portal');
-        } else if (role === 'admin') {
-          window.location.href = 'http://localhost:8000/admin';
+        // Check for policy acceptance
+        if (result.requires_policy_acceptance && result.tokens) {
+          console.log("Delegating Policy Check to Global Context");
+          triggerPolicyCheck(result.tokens.access);
+          // Close modal without redirecting, Context handles the rest
+          handleClose();
+          return;
         }
+
+        // Login successful
+        handleLoginSuccess();
       }
     } catch (error) {
       toast({
@@ -91,7 +101,13 @@ export default function LoginModal({
         variant: 'destructive',
       });
     } finally {
-      setIsLoading(false);
+      // Only reset if we didn't delegate (delegation calls handleClose which resets)
+      // Actually handleClose resets isLoading, so we don't need to do it here if checking logic flow?
+      // But if we returned early, we need to ensure isLoading is false? 
+      // handleClose sets isLoading(false).
+      // So if we didn't return early, we set it false here.
+      // But since we navigate away on success, component might unmount.
+      if (isOpen) setIsLoading(false);
     }
   };
 
@@ -102,24 +118,28 @@ export default function LoginModal({
     try {
       // Use recovery code if toggled, otherwise use OTP
       const code = useRecoveryCode ? recoveryCode : otpCode;
-      const success = await verifyMfa(tempToken, code, useRecoveryCode);
+      const result = await verifyMfa(tempToken, code, useRecoveryCode);
 
-      if (success) {
+      if (result.error) {
         toast({
-          title: 'Welcome back!',
-          description: 'You have been successfully logged in.',
-        });
-        handleClose();
+          title: 'MFA Verification Failed',
+          description: result.error,
+          variant: 'destructive',
 
-        // 🚦 TRAFFIC CONTROLLER (REDIRECTS) - After MFA
-        // Use the role prop from the modal, not user.role
-        if (role === 'doctor') {
-          router.push('/doctor');
-        } else if (role === 'patient') {
-          router.push('/portal');
-        } else if (role === 'admin') {
-          window.location.href = 'http://localhost:8000/admin';
-        }
+        });
+        return;
+      }
+
+      // Check for policy acceptance
+      if (result.requires_policy_acceptance && result.tokens) {
+        console.log("Delegating Policy Check to Global Context");
+        triggerPolicyCheck(result.tokens.access);
+        handleClose();
+        return;
+      }
+
+      if (result.status === 'SUCCESS') {
+        handleLoginSuccess();
       }
     } catch (error) {
       toast({
@@ -128,7 +148,7 @@ export default function LoginModal({
         variant: 'destructive',
       });
     } finally {
-      setIsLoading(false);
+      if (isOpen) setIsLoading(false);
     }
   };
 

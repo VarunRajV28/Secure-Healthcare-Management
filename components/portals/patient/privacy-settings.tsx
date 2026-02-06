@@ -1,7 +1,8 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Shield, Lock, AlertTriangle, Trash2, Calendar, Clock } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { Shield, Lock, AlertTriangle, Trash2, Calendar, Clock, FileText, Download } from 'lucide-react';
 import axios from 'axios';
 import { toast } from 'sonner';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -53,7 +54,8 @@ const DURATION_OPTIONS = [
 ];
 
 export default function PrivacySettings() {
-  const { tokens } = useAuth();
+  const { tokens, logout } = useAuth();
+  const router = useRouter();
   const [departments, setDepartments] = useState<Consent[]>([]);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -429,6 +431,55 @@ export default function PrivacySettings() {
         </div>
       </div>
 
+      {/* Legal & Compliance */}
+      <div className="mb-8">
+        <h2 className="text-xl font-semibold text-foreground mb-4 flex items-center gap-2">
+          <FileText className="h-5 w-5 text-accent" />
+          Legal & Compliance
+        </h2>
+        <div className="rounded-lg border border-border bg-card p-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="font-medium text-foreground">Terms of Service & Privacy Policy</h3>
+              <p className="text-sm text-muted-foreground mt-1">
+                You have accepted the latest version (v1) of our policies.
+              </p>
+            </div>
+            <Button
+              variant="outline"
+              className="gap-2"
+              onClick={async () => {
+                try {
+                  const receiptUrl = API_BASE_URL.replace('consents/', 'auth/download-policy-receipt/');
+                  const response = await axios.get(receiptUrl, {
+                    headers: getAuthHeaders(),
+                    responseType: 'blob'
+                  });
+
+                  const blob = new Blob([response.data], { type: 'application/pdf' });
+                  const url = window.URL.createObjectURL(blob);
+                  const link = document.createElement('a');
+                  link.href = url;
+                  link.setAttribute('download', 'policy_receipt_v1.pdf');
+                  document.body.appendChild(link);
+                  link.click();
+                  document.body.removeChild(link);
+                  window.URL.revokeObjectURL(url);
+
+                  toast.success('Policy receipt downloaded successfully.');
+                } catch (error) {
+                  console.error('Failed to download receipt:', error);
+                  toast.error('Failed to download policy receipt.');
+                }
+              }}
+            >
+              <Download className="h-4 w-4" />
+              Download Signed Policy (v1)
+            </Button>
+          </div>
+        </div>
+      </div>
+
       {/* Danger Zone */}
       <div className="rounded-lg border-2 border-destructive bg-destructive/5 p-6">
         <h2 className="text-lg font-semibold text-destructive mb-2 flex items-center gap-2">
@@ -466,9 +517,46 @@ export default function PrivacySettings() {
                 Cancel
               </button>
               <button
-                onClick={() => {
+                onClick={async () => {
                   setShowDeleteModal(false);
-                  // Handle deletion
+
+                  try {
+                    // Single API call: Fetch certificate (auto-marks account for deletion)
+                    const certificateUrl = API_BASE_URL.replace('consents/', 'auth/deletion-certificate/');
+
+                    const certificateResponse = await axios.get(certificateUrl, {
+                      headers: getAuthHeaders(),
+                      responseType: 'blob'
+                    });
+
+                    // Trigger browser download
+                    const certificateBlob = new Blob([certificateResponse.data], { type: 'application/pdf' });
+                    const blobUrl = window.URL.createObjectURL(certificateBlob);
+                    const link = document.createElement('a');
+                    link.href = blobUrl;
+                    link.setAttribute('download', 'deletion_certificate.pdf');
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                    window.URL.revokeObjectURL(blobUrl);
+
+                    // Show success message
+                    toast.success('Account scheduled for deletion. Your certificate has been downloaded.');
+
+                    // Wait 2 seconds for download to complete
+                    await new Promise(resolve => setTimeout(resolve, 2000));
+
+                    // Logout user
+                    logout();
+
+                    // Redirect to login with message
+                    router.push('/login?message=Account scheduled for deletion');
+                  } catch (error: any) {
+                    console.error('Error requesting account deletion:', error);
+                    toast.error(
+                      error.response?.data?.error || 'Failed to request account deletion'
+                    );
+                  }
                 }}
                 className="w-full rounded-lg bg-destructive px-4 py-2 font-medium text-destructive-foreground hover:bg-destructive/90 transition-colors"
               >

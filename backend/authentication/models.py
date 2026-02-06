@@ -58,6 +58,24 @@ class User(AbstractUser):
         help_text='Account locked until this timestamp'
     )
     
+    # Account deletion field (Right to be Forgotten)
+    deletion_requested_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the user requested account deletion"
+    )
+
+    # Policy Acceptance (Story 2.4)
+    accepted_policy_version = models.IntegerField(
+        default=0,
+        help_text="Version of the Terms of Service accepted by the user"
+    )
+    policy_accepted_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the user accepted the latest policy"
+    )
+    
     # Authentication configuration
     USERNAME_FIELD = 'email'
     REQUIRED_FIELDS = ['username', 'first_name', 'last_name']

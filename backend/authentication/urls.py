@@ -30,6 +30,14 @@ urlpatterns = [
     # Logout
     path('logout/', views.LogoutView.as_view(), name='auth_logout'),
     
+    # Account Deletion (Right to be Forgotten - Story 2.3)
+    path('request-deletion/', views.RequestAccountDeletionView.as_view(), name='request-deletion'),
+    path('deletion-certificate/', views.DownloadDeletionCertificateView.as_view(), name='deletion-certificate'),
+    
+    # Policy Updates (Story 2.4)
+    path('accept-policy/', views.AcceptLatestPolicyView.as_view(), name='accept-policy'),
+    path('download-policy-receipt/', views.DownloadPolicyReceiptView.as_view(), name='download-policy-receipt'),
+    
     # RBAC Testing
     path('admin-test/', views.admin_test_view, name='admin_test'),
     

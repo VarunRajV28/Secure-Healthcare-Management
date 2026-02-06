@@ -233,3 +233,5 @@ LOGGING = {
     },
 }
 
+# Policy Versioning
+LATEST_POLICY_VERSION = 1

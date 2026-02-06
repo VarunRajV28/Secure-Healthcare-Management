@@ -1,7 +1,9 @@
 'use client';
 
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { useToast } from '@/hooks/use-toast';
+import { TermsOfServiceModal } from '@/components/auth/terms-of-service-modal';
 
 interface User {
     id: number;
@@ -21,16 +23,19 @@ interface AuthContextType {
     tokens: Tokens | null;
     isAuthenticated: boolean;
     login: (username: string, password: string) => Promise<LoginResult>;
-    verifyMfa: (tempToken: string, code: string, isRecoveryCode?: boolean) => Promise<boolean>;
+    verifyMfa: (tempToken: string, code: string, isRecoveryCode?: boolean) => Promise<LoginResult>;
     logout: () => Promise<void>;
     refreshToken: () => Promise<boolean>;
     refreshUserStatus: () => Promise<boolean>;
+    triggerPolicyCheck: (token: string) => void;
 }
 
 interface LoginResult {
     status: 'SUCCESS' | 'MFA_REQUIRED';
     tempToken?: string;
     error?: string;
+    requires_policy_acceptance?: boolean;
+    tokens?: Tokens;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -38,7 +43,9 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
     const [user, setUser] = useState<User | null>(null);
     const [tokens, setTokens] = useState<Tokens | null>(null);
+    const [pendingPolicyToken, setPendingPolicyToken] = useState<string | null>(null);
     const { toast } = useToast();
+    const router = useRouter();
 
     // Load tokens from localStorage on mount
     useEffect(() => {
@@ -56,6 +63,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             }
         }
     }, []);
+
+    const triggerPolicyCheck = (token: string) => {
+        setPendingPolicyToken(token);
+    };
+
+    const handlePolicyAccepted = () => {
+        setPendingPolicyToken(null);
+
+        // Redirect based on user role
+        if (user) {
+            if (user.role === 'doctor') {
+                router.push('/doctor');
+            } else if (user.role === 'patient') {
+                router.push('/portal');
+            } else if (user.role === 'admin') {
+                window.location.href = 'http://localhost:8000/admin';
+            }
+        }
+    };
 
     const login = async (username: string, password: string): Promise<LoginResult> => {
         try {
@@ -97,7 +123,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             localStorage.setItem('auth_tokens', JSON.stringify(newTokens));
             localStorage.setItem('auth_user', JSON.stringify(data.user));
 
-            return { status: 'SUCCESS' };
+            return {
+                status: 'SUCCESS',
+                requires_policy_acceptance: data.requires_policy_acceptance,
+                tokens: newTokens
+            };
         } catch (error) {
             console.error('Login error:', error);
             return {
@@ -107,7 +137,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
     };
 
-    const verifyMfa = async (tempToken: string, code: string, isRecoveryCode: boolean = false): Promise<boolean> => {
+    const verifyMfa = async (tempToken: string, code: string, isRecoveryCode: boolean = false): Promise<LoginResult> => {
         try {
             // Build request body based on whether it's a recovery code or OTP
             const requestBody = isRecoveryCode
@@ -125,12 +155,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             const data = await response.json();
 
             if (!response.ok) {
-                toast({
-                    title: 'MFA Verification Failed',
-                    description: data.error || (isRecoveryCode ? 'Invalid recovery code' : 'Invalid OTP code'),
-                    variant: 'destructive',
-                });
-                return false;
+                return {
+                    status: 'SUCCESS', // Using SUCCESS status with error field to match pattern, or could define FAILED
+                    error: data.error || (isRecoveryCode ? 'Invalid recovery code' : 'Invalid OTP code')
+                };
             }
 
             // Store tokens and user
@@ -146,15 +174,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             localStorage.setItem('auth_tokens', JSON.stringify(newTokens));
             localStorage.setItem('auth_user', JSON.stringify(data.user));
 
-            return true;
+            return {
+                status: 'SUCCESS',
+                requires_policy_acceptance: data.requires_policy_acceptance,
+                tokens: newTokens
+            };
         } catch (error) {
             console.error('MFA verification error:', error);
-            toast({
-                title: 'Error',
-                description: 'Network error. Please try again.',
-                variant: 'destructive',
-            });
-            return false;
+            return {
+                status: 'SUCCESS',
+                error: 'Network error. Please try again.'
+            };
         }
     };
 
@@ -294,9 +324,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         logout,
         refreshToken,
         refreshUserStatus,
+        triggerPolicyCheck,
     };
 
-    return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+    return (
+        <AuthContext.Provider value={value}>
+            {children}
+            <TermsOfServiceModal
+                isOpen={!!pendingPolicyToken}
+                token={pendingPolicyToken}
+                onAccept={handlePolicyAccepted}
+            />
+        </AuthContext.Provider>
+    );
 }
 
 export function useAuth() {
