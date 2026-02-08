@@ -68,3 +68,4 @@
 2026-02-07 03:52:23,980 INFO ACCESS: User ID 28 accessed /api/consents/ via GET
 2026-02-07 03:56:49,502 INFO ACCESS: User ID 28 accessed /api/consents/ via GET
 2026-02-07 03:56:49,528 INFO ACCESS: User ID 28 accessed /api/consents/ via GET
+2026-02-07 04:02:52,534 INFO ACCESS: User ID 1 accessed /admin/ via GET
